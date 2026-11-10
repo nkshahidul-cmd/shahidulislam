@@ -206,7 +206,7 @@ tfoot td{font-weight:700;background:var(--blue-l)}
 <!-- BACKUP -->
 <section class="view" id="v-backup">
  <div class="card"><h2>Backup &amp; Restore</h2>
-  <p class="muted">Your sales data syncs to Firebase and is available on your signed-in devices. You can also export a backup for safekeeping.</p>
+  <p class="muted">Your data is stored in this browser only. Export a backup regularly (e.g. weekly) and keep it safe on your phone or Google Drive.</p>
   <div class="actions">
    <button class="btn" id="bExport">⬇ Export All Data (JSON)</button>
    <button class="btn sec" id="bCsv">⬇ Export All Sales Records (CSV)</button>
@@ -246,24 +246,9 @@ tfoot td{font-weight:700;background:var(--blue-l)}
  </form>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>
 (function(){
 'use strict';
-var firebaseConfig={
- apiKey:'AIzaSyBZxt9tpgJIb_eIZb73jC6M5JlzKA9s-s',
- authDomain:'mollah-enterprises.firebaseapp.com',
- projectId:'mollah-enterprises',
- storageBucket:'mollah-enterprises.firebasestorage.app',
- messagingSenderId:'434370777596',
- appId:'1:434370777596:web:38fe8fb446ea252a5ca279'
-};
-firebase.initializeApp(firebaseConfig);
-var auth=firebase.auth(),db=firebase.firestore(),currentUser=null,cloudReady=false,recordsUnsub=null,settingsUnsub=null;
-var AUTH_EMAIL='admin@mollaenterprise.com',ADMIN_UID='Szr6bcdyJWgHgvhWTj8plqGbz0o2';
-auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e){console.error(e)});
 var KEY='mollaSales_records_v1', SKEY='mollaSales_settings_v1';
 var DEFAULT_PRODUCTS=['19 Voice','29 Voice','39 Voice','49 MB','Prepared','Service Kit','Skitto','No One'];
 var NOTES=[1000,500,200,100,50,20,10,5,2,1];
@@ -283,53 +268,9 @@ function load(){
  try{settings=JSON.parse(localStorage.getItem(SKEY)||'{}')||{}}catch(e){settings={}}
  if(!Array.isArray(settings.products)||!settings.products.length)settings.products=DEFAULT_PRODUCTS.map(function(n){return{name:n,price:0}});
 }
-function syncCloud(){
- if(!currentUser||!cloudReady)return Promise.resolve();
- var col=db.collection('salesRecords'),wanted={};
- records.forEach(function(r){if(r&&r.id)wanted[String(r.id)]=r});
- return col.get().then(function(snap){
-  var batch=db.batch(),ops=0;
-  snap.forEach(function(doc){if(!wanted[doc.id]){batch.delete(doc.ref);ops++}});
-  Object.keys(wanted).forEach(function(id){batch.set(col.doc(id),wanted[id]);ops++});
-  batch.set(db.collection('appSettings').doc('main'),settings);
-  if(ops>499)throw new Error('Too many records for one sync. Please contact support.');
-  return batch.commit();
- }).catch(function(e){console.error('Firestore sync failed',e);toast('Cloud sync failed: '+(e.message||'check internet and Firestore rules'),true);throw e});
-}
 function persist(){
- try{localStorage.setItem(KEY,JSON.stringify(records));localStorage.setItem(SKEY,JSON.stringify(settings))}
- catch(e){toast('Could not save local cache.',true);return false}
- if(currentUser&&cloudReady)syncCloud().catch(function(){});
- return true;
-}
-function loadCloud(){
- cloudReady=false;
- return Promise.all([db.collection('salesRecords').get(),db.collection('appSettings').doc('main').get()]).then(function(results){
-  var snap=results[0],cfg=results[1],cloudRecords=[];
-  snap.forEach(function(doc){var d=doc.data()||{};d.id=d.id||doc.id;cloudRecords.push(d)});
-  if(cloudRecords.length){records=cloudRecords;}
-  else if(records.length){/* First login: migrate this browser's existing records to Firestore. */}
-  if(cfg.exists){settings=cfg.data()||settings;}
-  if(!Array.isArray(settings.products)||!settings.products.length)settings.products=DEFAULT_PRODUCTS.map(function(n){return{name:n,price:0}});
-  try{localStorage.setItem(KEY,JSON.stringify(records));localStorage.setItem(SKEY,JSON.stringify(settings))}catch(e){}
-  cloudReady=true;
-  if(records.length||!cfg.exists)return syncCloud();
- }).then(function(){
-  if(recordsUnsub)recordsUnsub();
-  if(settingsUnsub)settingsUnsub();
-  recordsUnsub=db.collection('salesRecords').onSnapshot(function(snap){
-   if(!cloudReady)return;
-   records=[];snap.forEach(function(doc){var d=doc.data()||{};d.id=d.id||doc.id;records.push(d)});
-   try{localStorage.setItem(KEY,JSON.stringify(records))}catch(e){}
-   renderHistory();if($('v-monthly').classList.contains('active'))renderMonthly();if($('v-yearly').classList.contains('active'))renderYearly();
-  },function(e){console.error(e);toast('Live sync error: '+e.message,true)});
-  settingsUnsub=db.collection('appSettings').doc('main').onSnapshot(function(doc){
-   if(!cloudReady||!doc.exists)return;settings=doc.data()||settings;
-   try{localStorage.setItem(SKEY,JSON.stringify(settings))}catch(e){}
-   if($('v-backup').classList.contains('active'))renderSettings();
-  },function(e){console.error(e)});
-  newEntry(true);renderHistory();
- });
+ try{localStorage.setItem(KEY,JSON.stringify(records));localStorage.setItem(SKEY,JSON.stringify(settings));return true}
+ catch(e){toast('Could not save: browser storage is full or blocked.',true);return false}
 }
 function fmtDate(d){if(!d)return '';var p=d.split('-');return p[2]+'/'+p[1]+'/'+p[0]}
 
@@ -802,46 +743,46 @@ $('setSave').onclick=function(){var p=readSettings();if(!p.length){toast('Add at
 $('setReset').onclick=function(){if(!confirm('Reset product list to the original 8 products (prices cleared)?'))return;settings.products=DEFAULT_PRODUCTS.map(function(n){return{name:n,price:0}});persist();renderSettings();toast('Defaults reset.')};
 function hasInput(){var f=readForm();return f.ers.recv>0||f.products.some(function(p){return p.recv||p.ret})}
 
-/* ---------- Firebase login ---------- */
-var LOGIN_ID='SEMOA027097';
-function showLogin(message){
- $('lgTitle').textContent='Login';
- $('lgPw2Wrap').style.display='none';
- $('lgForgot').style.display='none';
- $('lgBtn').textContent='Login';
- $('lgMsg').textContent='Use your assigned ID and password. Same account works on every device.';
- $('lgErr').textContent=message||'';$('lgPw').value='';
+/* ---------- login lock ---------- */
+var LKEY='mollaLogin_v1',LOGIN_ID='SEMOA027097';
+function hashPw(s){var str='molla|'+s,h1=0xdeadbeef,h2=0x41c6ce57;for(var i=0;i<str.length;i++){var c=str.charCodeAt(i);h1=Math.imul(h1^c,2654435761);h2=Math.imul(h2^c,1597334677)}
+ h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+ return (h2>>>0).toString(16)+(h1>>>0).toString(16)}
+function showLogin(){
+ var has=!!localStorage.getItem(LKEY);
+ $('lgTitle').textContent=has?'Login':'Create Your Password';
+ $('lgPw2Wrap').style.display=has?'none':'block';
+ $('lgForgot').style.display=has?'inline':'none';
+ $('lgBtn').textContent=has?'Login':'Save & Login';
+ $('lgMsg').textContent=has?'Enter your ID and password.':'First time only: choose a password (at least 4 characters).';
+ $('lgErr').textContent='';$('lgPw').value='';$('lgPw2').value='';
+ $('lgPw').autocomplete=has?'current-password':'new-password';
  $('gate').style.display='flex';
 }
 $('lgForm').addEventListener('submit',function(e){
  e.preventDefault();
- var id=$('lgId').value.trim().toUpperCase(),pw=$('lgPw').value,er=$('lgErr');
+ var id=$('lgId').value.trim().toUpperCase(),pw=$('lgPw').value,saved=localStorage.getItem(LKEY),er=$('lgErr');
  if(id!==LOGIN_ID){er.textContent='Wrong ID.';return}
- if(!pw){er.textContent='Enter your password.';return}
- $('lgBtn').disabled=true;er.textContent='Signing in...';
- auth.signInWithEmailAndPassword(AUTH_EMAIL,pw).then(function(cred){
-  if(cred.user.uid!==ADMIN_UID)return auth.signOut().then(function(){throw new Error('This account is not the authorized admin account.')});
- }).catch(function(err){er.textContent=err.code==='auth/invalid-credential'?'Wrong ID or password.':(err.message||'Login failed.');})
- .finally(function(){$('lgBtn').disabled=false});
+ if(saved){if(hashPw(pw)!==saved){er.textContent='Wrong password.';return}}
+ else{
+  if(pw.length<4){er.textContent='Password must be at least 4 characters.';return}
+  if(pw!==$('lgPw2').value){er.textContent='Passwords do not match.';return}
+  try{localStorage.setItem(LKEY,hashPw(pw))}catch(x){er.textContent='Could not save password (browser storage blocked).';return}
+ }
+ try{sessionStorage.setItem('mollaAuth','1')}catch(x){}
+ $('gate').style.display='none';er.textContent='';
 });
-$('lgForgot').onclick=function(e){e.preventDefault();};
-$('logoutBtn').onclick=function(){auth.signOut().then(function(){cloudReady=false;currentUser=null;if(recordsUnsub)recordsUnsub();if(settingsUnsub)settingsUnsub();show('entry');showLogin()}).catch(function(e){toast(e.message,true)})};
+$('lgForgot').onclick=function(e){e.preventDefault();
+ if(confirm('Reset the password? Your sales data will NOT be deleted. You will create a new password.')){localStorage.removeItem(LKEY);showLogin()}};
+$('logoutBtn').onclick=function(){try{sessionStorage.removeItem('mollaAuth')}catch(x){}show('entry');showLogin()};
 $('cpBtn').onclick=function(){
- var o=$('cpOld').value,n=$('cpNew').value,user=auth.currentUser;
- if(!user){toast('Please log in again.',true);return}
- if(n.length<6){toast('New password must be at least 6 characters.',true);return}
- var credential=firebase.auth.EmailAuthProvider.credential(AUTH_EMAIL,o);
- user.reauthenticateWithCredential(credential).then(function(){return user.updatePassword(n)}).then(function(){
-  $('cpOld').value='';$('cpNew').value='';toast('✔ Password changed successfully.');
- }).catch(function(e){toast(e.code==='auth/wrong-password'?'Current password is wrong.':e.message,true)});
+ var o=$('cpOld').value,n=$('cpNew').value;
+ if(hashPw(o)!==localStorage.getItem(LKEY)){toast('Current password is wrong.',true);return}
+ if(n.length<4){toast('New password must be at least 4 characters.',true);return}
+ localStorage.setItem(LKEY,hashPw(n));$('cpOld').value='';$('cpNew').value='';toast('✔ Password changed.');
 };
-auth.onAuthStateChanged(function(user){
- if(!user){currentUser=null;cloudReady=false;showLogin();return}
- if(user.uid!==ADMIN_UID){auth.signOut();showLogin('Unauthorized account.');return}
- currentUser=user;showLogin('Loading your cloud data...');
- loadCloud().then(function(){ $('gate').style.display='none';$('lgErr').textContent=''; })
- .catch(function(e){cloudReady=false;showLogin('Could not load cloud data: '+(e.message||'check connection and Firestore rules'))});
-});
+var loggedIn=false;try{loggedIn=sessionStorage.getItem('mollaAuth')==='1'}catch(x){}
+if(!loggedIn||!localStorage.getItem(LKEY))showLogin();
 
 /* ---------- init ---------- */
 load();
